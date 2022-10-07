@@ -2,23 +2,13 @@ unit SongClass;
 
 interface
 
-uses System.Classes, System.SysUtils, System.DateUtils;
+uses System.Classes, System.SysUtils, System.DateUtils, ID3Tag;
 
 const
-  UNKNOWN_ARTIST = 'Inconnu';
-  UNKNOWN_TITLE = 'Sans titre';
+  UNKNOWN_ARTIST = 'Unknwon';
+  UNKNOWN_TITLE = 'No title';
 
 type
-
-  TID3Rec = packed record
-    Tag : Array[1..3] of char;         { If tag exists this must be 'TAG' }
-    Title : Array[1..30] of char;      { Title data (PChar) }
-    Artist : Array[1..30] of char;     { Artist data (PChar) }
-    Album : Array[1..30] of char;      { Album data (PChar) }
-    Year : Array[1..4] of char;        { Date data }
-    Comment : Array[1..30] of char;    { Comment data (PChar) }
-    Genre : Byte;                      { Genre data }
-  end;
 
   TDownloadStatus = (dsUndefined, dsWaiting, dsInProgress, dsTerminated, dsError);
 
@@ -53,7 +43,7 @@ type
   public
     constructor Create(AFilename: string='');
     destructor Destroy; override;
-    procedure ReadID3Tag(AFilename: string);
+    procedure ReadID3Tag;
     function DownloadStatusText: string;
   end;
 
@@ -84,16 +74,22 @@ begin
   Artist := TArtist.Create;
   Duration := TSongDuration.Create;
   DownloadStatus := dsUndefined;
-
-  if (AFilename<>'') then
-  begin
-    ReadID3Tag(AFilename);
-  end;
-
 end;
 
-procedure TSong.ReadID3Tag(AFilename: string);
+procedure TSong.ReadID3Tag;
+var
+  ID3Tag: TID3Tag;
 begin
+  if FileExists(Filename) then
+  begin
+    ID3Tag := GetID3(Filename);
+    Artist.Name := ID3Tag.Artist;
+    Title := ID3Tag.Title;
+  end else
+  begin
+    Artist.Name := UNKNOWN_ARTIST;
+    Title := UNKNOWN_TITLE;
+  end;
 end;
 
 { TArtist }
@@ -164,10 +160,10 @@ function TSong.DownloadStatusText: string;
 begin
   case DownloadStatus of
     dsUndefined: Result := '';
-    dsWaiting: Result := 'En attente';
-    dsInProgress: Result := 'En cours';
-    dsTerminated: Result := 'Téléchargé';
-    dsError: Result := 'Erreur';
+    dsWaiting: Result := 'Queued';
+    dsInProgress: Result := 'Downloading';
+    dsTerminated: Result := 'Done';
+    dsError: Result := 'Error';
   end;
 end;
 

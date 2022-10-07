@@ -78,6 +78,13 @@ type
     PanelBottomBarContainer: TPanel;
     LabelSearchCount: TLabel;
     LabelDownloadsCount: TLabel;
+    ButtonStop: TButton;
+    TabSheetPlaylist: TTabSheet;
+    ListView1: TListView;
+    Directplay1: TMenuItem;
+    Addandplay1: TMenuItem;
+    Addtoplaylist1: TMenuItem;
+    N1: TMenuItem;
     procedure ButtonSearchClick(Sender: TObject);
     procedure FormCreate(Sender: TObject);
     procedure ListViewSearchResultsDblClick(Sender: TObject);
@@ -120,6 +127,7 @@ type
       Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure ListViewDownloadsSelectItem(Sender: TObject; Item: TListItem;
       Selected: Boolean);
+    procedure ButtonStopClick(Sender: TObject);
   private
     { Déclarations privées }
     SearchProvider: z1fmProvider;
@@ -176,7 +184,7 @@ type
 
     // Download panel
     procedure M3UExtractInfos(ALine: string; ASong: TSong);
-    procedure LoadDownloadList;
+    procedure FillDownloadList;
     procedure SaveDownloadList;
     procedure PlayCheckedDownloads(AAutoplay: Boolean);
     procedure RemoveSelectedDownloads;
@@ -190,6 +198,7 @@ type
     procedure ProcessDownloadQueue;
 
     // player
+    property Player: TPlayer read FPlayer write FPlayer;
     procedure PlaySongs(ASongList: TSongList; AAutoplay: Boolean = False);
 
     procedure RefreshSongDownload(ASong: TSong);
@@ -201,29 +210,23 @@ type
     { Déclarations publiques }
   end;
 
-{$IFDEF UNICODE}
-function ILCreateFromPath(pszPath: PChar): PItemIDList stdcall; external shell32
-  name 'ILCreateFromPathW';
-{$ELSE}
-function ILCreateFromPath(pszPath: PChar): PItemIDList stdcall; external shell32
-  name 'ILCreateFromPathA';
-{$ENDIF}
+function ILCreateFromPath(pszPath: PChar): PItemIDList stdcall; external shell32 name 'ILCreateFromPathW';
 procedure ILFree(pidl: PItemIDList) stdcall; external shell32;
-function SHOpenFolderAndSelectItems(pidlFolder: PItemIDList; cidl: Cardinal;
-  apidl: pointer; dwFlags: DWORD): HRESULT; stdcall; external shell32;
+function SHOpenFolderAndSelectItems(pidlFolder: PItemIDList; cidl: Cardinal; apidl: pointer; dwFlags: DWORD): HRESULT; stdcall; external shell32;
 
 var
   FormMain: TFormMain;
 
 implementation
 
-uses Logger;
+uses Logger, ID3Tag;
 
 {$R *.dfm}
 
 function OpenFolderAndSelectFile(const FileName: string): boolean;
 var
   IIDL: PItemIDList;
+
 begin
   result := false;
   IIDL := ILCreateFromPath(PChar(FileName));
@@ -247,6 +250,7 @@ end;
 procedure TFormMain.AddSearchResults(ASongList: TSongList);
 var
   Song: TSong;
+
 begin
   for Song in ASongList do
   begin
@@ -271,7 +275,7 @@ begin
     end;
     Data := ASong;
   end;
-  LabelDownloadsCount.Caption := Format('%d téléchargement(s)',[ListViewDownloads.Items.Count]);
+  LabelDownloadsCount.Caption := Format('%d downloads',[ListViewDownloads.Items.Count]);
 
   ProcessDownloadQueue;
 end;
@@ -284,6 +288,7 @@ end;
 procedure TFormMain.ButtonDownloadClick(Sender: TObject);
 var
   Item: TListItem;
+
 begin
   for Item in ListViewDownloads.Items do
   begin
@@ -299,15 +304,20 @@ end;
 procedure TFormMain.ButtonPlayClick(Sender: TObject);
 begin
   if PageControl.ActivePage=TabSheetSearch then
+  begin
     PlayCheckedSearches(True);
+  end;
 
   if PageControl.ActivePage=TabSheetDownloads then
+  begin
     PlayCheckedDownloads(True);
+  end;
 end;
 
 procedure TFormMain.ButtonPlaylistClick(Sender: TObject);
 var
   SongList: TSongList;
+
 begin
   SongList := PlaylistProvider.GetPlaylist(EditSearchKeywords.Text);
   ListViewSearchResults.Clear;
@@ -317,6 +327,7 @@ end;
 procedure TFormMain.ButtonSearchArtistClick(Sender: TObject);
 var
   Song: TSong;
+
 begin
   if Assigned(ListViewSearchResults.Selected) then
   begin
@@ -333,9 +344,15 @@ begin
   SearchSong(EditSearchKeywords.Text);
 end;
 
+procedure TFormMain.ButtonStopClick(Sender: TObject);
+begin
+  Player.Pause;
+end;
+
 procedure TFormMain.CheckAllItemsOfListView(AListView: TListView; AChecked: Boolean);
 var
   Item: TListItem;
+
 begin
   AListView.Items.BeginUpdate;
   try
@@ -365,9 +382,9 @@ begin
    FDownloadsListColumns  := TDictionary<string, TListColumn>.Create();
 
    AddColumn('', 30, ctCheck);
-   AddColumn('Artiste', -200, ctText);
-   AddColumn('Chanson', -200, ctText);
-   AddColumn('Progression', 200, ctProgress);
+   AddColumn('Artist', -200, ctText);
+   AddColumn('Song', -200, ctText);
+   AddColumn('Progress', 200, ctProgress);
 end;
 
 procedure TFormMain.CreateSearchListColumns;
@@ -390,9 +407,9 @@ begin
    FSearchListColumns  := TDictionary<string, TListColumn>.Create();
 
    AddColumn('', 30, ctCheck, taCenter);
-   AddColumn('Artiste', -200, ctText, taLeftJustify);
-   AddColumn('Chanson', -200, ctText, taLeftJustify);
-   AddColumn('Durée', 100, ctText, taRightJustify);
+   AddColumn('Artist', -200, ctText, taLeftJustify);
+   AddColumn('Song', -200, ctText, taLeftJustify);
+   AddColumn('Length', 100, ctText, taRightJustify);
 end;
 
 procedure TFormMain.PlaySongs(ASongList: TSongList; AAutoplay: Boolean = False);
@@ -400,10 +417,11 @@ var
   CommandLineParams: string;
   Song: TSong;
   SongStringList: TStringList;
+
 begin
   if (Configuration.PlayerLocation='') or not FileExists(Configuration.PlayerLocation) then
   begin
-    ShowMessage('Lecteur non configuré');
+    ShowMessage('Player not set');
     Exit;
   end;
 
@@ -432,7 +450,13 @@ var
   Item: TListItem;
   Song: TSong;
   SongsList: TSongList;
+
 begin
+  Song := TSong(ListViewDownloads.Selected.Data);
+  Player.OpenFile(Song.Filename);
+  Player.Resume;
+  Exit;
+
   SongsList := TSongList.Create;
   try
     for Item in ListViewDownloads.Items do
@@ -458,7 +482,13 @@ var
   Item: TListItem;
   Song, FirstSong: TSong;
   SongList: TSongList;
+
 begin
+  Song := TSong(ListViewSearchResults.Selected.Data);
+  Player.OpenURL(Song.Url);
+  Player.Resume;
+  Exit;
+
   FirstSong := nil;
   SongList := TSongList.Create;
   try
@@ -534,8 +564,8 @@ end;
 procedure TFormMain.Explorerledossier1Click(Sender: TObject);
 var
   Song: TSong;
-begin
 
+begin
   if Assigned(ListViewDownloads.Selected) then
   begin
     Song := TSong(ListViewDownloads.Selected.Data);
@@ -556,6 +586,7 @@ end;
 procedure TFormMain.FormCreate(Sender: TObject);
 var
   SubscriptionId: Integer;
+
 begin
   //ReportMemoryLeaksOnShutdown := True;
 
@@ -617,6 +648,7 @@ end;
 procedure TFormMain.ListViewSearchResultsDblClick(Sender: TObject);
 var
   SongList: TSongList;
+
 begin
   if Assigned(ListViewSearchResults.Selected) then
   begin
@@ -630,6 +662,7 @@ procedure TFormMain.ListViewDrawItem(Sender: TCustomListView;
   Item: TListItem; Rect: TRect; State: TOwnerDrawState);
 const
   ListView_Padding = 5;
+
 var
   LRect, LRect2: TRect;
   Col : Integer;
@@ -773,6 +806,7 @@ var
    W: Integer;
    Col: Integer;
    Song: TSong;
+
 begin
    Item := TListView(Sender).GetItemAt(0, Y);
    if Assigned(Item) then
@@ -811,6 +845,7 @@ end;
 procedure TFormMain.LabelSearchMoreResultsClick(Sender: TObject);
 var
   SongList: TSongList;
+
 begin
   SongList := SearchProvider.SearchMore;
   AddSearchResults(SongList);
@@ -819,6 +854,7 @@ end;
 procedure TFormMain.ListViewDownloadsDblClick(Sender: TObject);
 var
   SongList: TSongList;
+
 begin
   if Assigned(ListViewDownloads.Selected) then
   begin
@@ -832,8 +868,9 @@ procedure TFormMain.ListViewDownloadsKeyDown(Sender: TObject;
   var Key: Word; Shift: TShiftState);
 begin
   if Key=VK_DELETE then
+  begin
     RemoveSelectedDownloads;
-
+  end;
 end;
 
 procedure TFormMain.ListViewDownloadsSelectItem(Sender: TObject;
@@ -845,13 +882,32 @@ begin
   end;
 end;
 
-procedure TFormMain.LoadDownloadList;
+procedure TFormMain.FillDownloadList;
 var
   PlayList: TStringList;
   Line: string;
   Song: TSong;
+  SR: TSearchRec;
+  ID3Tag: TID3Tag;
+
 begin
   ListViewDownloads.Clear;
+
+  if FindFirst(Configuration.DownloadDirectory+'*.mp3', faAnyFile, SR)=0 then
+  begin
+    repeat
+      Song := TSong.Create;
+      Song.Filename := Configuration.DownloadDirectory + SR.Name;
+      Song.DownloadStatus := dsTerminated;
+      Song.Url := Song.Filename;
+      Song.ReadID3Tag;
+
+      AddSongToDownloads(Song, False);
+    until FindNext(SR)<>0;
+    FindClose(SR);
+  end;
+  Exit;
+
 
   PlayList := TStringList.Create;
   Song := nil;
@@ -935,6 +991,7 @@ procedure TFormMain.ProcessDownloadQueue;
 var
   Item: TListItem;
   Song: TSong;
+
 begin
   if DownloadsRunningCount >= Configuration.ConcurentDownloads then Exit;
 
@@ -980,6 +1037,7 @@ end;
 procedure TFormMain.InitSearchTab;
 var
   SongList: TSongList;
+
 begin
   DisableListViewInfoTips(ListViewSearchResults);
   CreateSearchListColumns;
@@ -1010,7 +1068,7 @@ procedure TFormMain.InitDownloadsTab;
 begin
   DisableListViewInfoTips(ListViewDownloads);
   CreateDownloadsListColumns;
-  LoadDownloadList;
+  FillDownloadList;
 end;
 
 procedure TFormMain.SetActiveTab(ATabSheet: TTabSheet);
@@ -1029,12 +1087,13 @@ begin
     SubItems.Add(ASong.Duration.AsString);
     Data := ASong;
   end;
-  LabelSearchCount.Caption := Format('%d résultat(s)',[ListViewSearchResults.Items.Count]);
+  LabelSearchCount.Caption := Format('%d results',[ListViewSearchResults.Items.Count]);
 end;
 
 procedure TFormMain.RemoveCheckedItemsOfListView(AListView: TListView);
 var
   I: Integer;
+
 begin
   I := 0;
   while I < AListView.Items.Count do
@@ -1064,6 +1123,7 @@ var
   PlayList: TStringList;
   Item: TListItem;
   Song: TSong;
+
 begin
   PlayList := TStringList.Create;
   try
@@ -1078,7 +1138,7 @@ begin
       else
         PlayList.Add(Song.Url);
     end;
-    PlayList.SaveToFile('NapWire.m3u',TEncoding.UTF8);
+    PlayList.SaveToFile('Napwire.m3u',TEncoding.UTF8);
   finally
     PlayList.Free;
   end;
@@ -1089,6 +1149,7 @@ var
   Item: TListItem;
   Song: TSong;
   SongList: TSongList;
+
 begin
   Item := ListViewSearchResults.Selected;
   if Assigned(Item) then
@@ -1108,6 +1169,7 @@ end;
 procedure TFormMain.SearchSong(AKeywords: string);
 var
   SongList: TSongList;
+
 begin
   if AKeywords<>'' then
   begin
@@ -1153,6 +1215,7 @@ procedure TFormMain.SelectSongInListView(ASong: TSong;
 var
   Song: TSong;
   Item: TListItem;
+
 begin
   for Item in AListView.Items do
   begin

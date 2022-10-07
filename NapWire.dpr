@@ -12,7 +12,9 @@ uses
   Vcl.Styles,
   magicplaylist.provider in 'magicplaylist.provider.pas',
   Configuration in 'Configuration.pas',
-  Logger in 'Logger.pas';
+  Logger in 'Logger.pas',
+  MP3Info in 'MP3Info.pas',
+  ID3Tag in 'ID3Tag.pas';
 
 {$R *.res}
 

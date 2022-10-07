@@ -110,6 +110,8 @@
         <DCCReference Include="magicplaylist.provider.pas"/>
         <DCCReference Include="Configuration.pas"/>
         <DCCReference Include="Logger.pas"/>
+        <DCCReference Include="MP3Info.pas"/>
+        <DCCReference Include="ID3Tag.pas"/>
         <BuildConfiguration Include="Release">
             <Key>Cfg_2</Key>
             <CfgParent>Base</CfgParent>
